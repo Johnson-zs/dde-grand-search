@@ -12,6 +12,7 @@
 #include "interfaces/anything_interface.h"
 
 #include <QStandardPaths>
+#include <QEventLoop>
 
 using namespace GrandSearch;
 
@@ -78,7 +79,7 @@ QFileInfoList FileNameWorkerPrivate::traverseDirAndFile(const QString &path)
     auto result = dir.entryInfoList();
     // 排序
     std::sort(result.begin(), result.end(), [](const QFileInfo &info1, const QFileInfo &info2) {
-        static QStringList sortList{"Desktop", "Music", "Downloads", "Documents", "Pictures", "Videos"};
+        static QStringList sortList { "Desktop", "Music", "Downloads", "Documents", "Pictures", "Videos" };
         int index1 = sortList.indexOf(info1.fileName());
         int index2 = sortList.indexOf(info2.fileName());
 
@@ -101,7 +102,7 @@ bool FileNameWorkerPrivate::appendSearchResult(const QString &fileName)
         return false;
 
     auto group = FileSearchUtils::getGroupByName(fileName);
-    Q_ASSERT(group >= FileSearchUtils::GroupBegin && group< FileSearchUtils::GroupCount);
+    Q_ASSERT(group >= FileSearchUtils::GroupBegin && group < FileSearchUtils::GroupCount);
 
     // 根据搜索类目配置判断是否需要进行添加
     if (!m_resultCountHash.contains(group)) {
@@ -147,7 +148,7 @@ bool FileNameWorkerPrivate::searchUserPath()
     QFileInfoList fileInfoList = traverseDirAndFile(m_searchPath);
     // 先对user目录下进行搜索
     for (const auto &info : fileInfoList) {
-        //中断
+        // 中断
         if (m_status.loadAcquire() != ProxyWorker::Runing)
             return false;
 
@@ -168,7 +169,7 @@ bool FileNameWorkerPrivate::searchUserPath()
 
             appendSearchResult(absoluteFilePath);
 
-            //推送
+            // 推送
             tryNotify();
 
             if (isResultLimit())
@@ -186,76 +187,39 @@ bool FileNameWorkerPrivate::searchUserPath()
 
 bool FileNameWorkerPrivate::searchByAnything()
 {
-    // 搜索
-    quint32 searchStartOffset = 0;
-    quint32 searchEndOffset = 0;
     // 过滤系统隐藏文件
     QRegularExpression hiddenFileFilter("^(?!.*/\\..*).+$");
-    while (!isResultLimit() && !m_searchDirList.isEmpty()) {
-        //中断
+
+    // 获取SearchManager实例
+    auto &searchManager = SearchManager::instance();
+
+    // 中断检查
+    if (m_status.loadAcquire() != ProxyWorker::Runing)
+        return false;
+
+    // 直接调用同步搜索方法 m_searchPath
+    QStringList searchResults = searchManager.searchSync(m_searchPath, m_searchInfo.keyword);
+
+    // 过滤隐藏文件
+    searchResults = searchResults.filter(hiddenFileFilter);
+
+    // 处理搜索结果
+    for (auto &path : searchResults) {
+        // 中断检查
         if (m_status.loadAcquire() != ProxyWorker::Runing)
             return false;
 
-        QDBusPendingReply<QStringList, uint, uint> result;
-        if (m_supportParallelSearch) {
-            QStringList rules;
-            rules << "0x02100"  // 搜索做大数量，100
-                  << "0x40."    // 过滤系统隐藏文件
-                  << "0x011"    // 支持正则表达式
-                  << "0x031"    // 忽略大小写
-                  << "0x061";   // 拼音搜索
-            result = m_anythingInterface->parallelsearch(m_searchDirList.first(), searchStartOffset,
-                                                         searchEndOffset, m_searchInfo.keyword, rules);
-        } else {
-            result = m_anythingInterface->search(100, 100, searchStartOffset,
-                                                 searchEndOffset, m_searchDirList.first(), m_searchInfo.keyword,
-                                                 true);
-        }
-
-        // fix bug 93806
-        // 直接判断errorType为NoError，需要先取值再判断
-        QStringList searchResults = result.argumentAt<0>();
-        if (result.error().type() != QDBusError::NoError) {
-            qWarning() << "deepin-anything search failed:"
-                       << QDBusError::errorString(result.error().type())
-                       << result.error().message();
-            searchStartOffset = searchEndOffset = 0;
-            m_searchDirList.removeAt(0);
+        // 过滤文管设置的隐藏文件
+        if (SpecialTools::isHiddenFile(path, m_hiddenFilters, QDir::homePath()))
             continue;
-        }
 
-        if (!m_supportParallelSearch)
-            searchResults = searchResults.filter(hiddenFileFilter);
-        searchStartOffset = result.argumentAt<1>();
-        searchEndOffset = result.argumentAt<2>();
+        appendSearchResult(path);
 
-        // 当前目录已经搜索到了结尾
-        if (searchStartOffset >= searchEndOffset) {
-            searchStartOffset = searchEndOffset = 0;
-            m_searchDirList.removeAt(0);
-        }
+        // 推送
+        tryNotify();
 
-        for (auto &path : searchResults) {
-            //中断
-            if (m_status.loadAcquire() != ProxyWorker::Runing)
-                return false;
-
-            // 去除掉添加的data前缀
-            if (m_hasTransformed && path.startsWith(m_searchPath))
-                path.replace(m_searchPath, m_originalSearchPath);
-
-            // 过滤文管设置的隐藏文件
-            if (SpecialTools::isHiddenFile(path, m_hiddenFilters, QDir::homePath()))
-                continue;
-
-            appendSearchResult(path);
-
-            //推送
-            tryNotify();
-
-            if (isResultLimit())
-                break;
-        }
+        if (isResultLimit())
+            break;
     }
 
     int leave = itemCount();
@@ -290,18 +254,17 @@ int FileNameWorkerPrivate::itemCount() const
 
 bool FileNameWorkerPrivate::isResultLimit()
 {
-    const auto &iter = std::find_if(m_resultCountHash.begin(), m_resultCountHash.end(), [](const int &num){
+    const auto &iter = std::find_if(m_resultCountHash.begin(), m_resultCountHash.end(), [](const int &num) {
         return num <= MAX_SEARCH_NUM;
     });
 
     return iter == m_resultCountHash.end();
 }
 
-FileNameWorker::FileNameWorker(const QString &name, bool supportParallelSearch, QObject *parent)
+FileNameWorker::FileNameWorker(const QString &name, QObject *parent)
     : ProxyWorker(name, parent),
       d_ptr(new FileNameWorkerPrivate(this))
 {
-    d_ptr->m_supportParallelSearch = supportParallelSearch;
 }
 
 FileNameWorker::~FileNameWorker()
@@ -329,7 +292,7 @@ bool FileNameWorker::working(void *context)
     Q_D(FileNameWorker);
     Q_UNUSED(context)
 
-    //准备状态切运行中，否则直接返回
+    // 准备状态切运行中，否则直接返回
     if (!d->m_status.testAndSetRelease(Ready, Runing))
         return false;
 
@@ -340,41 +303,23 @@ bool FileNameWorker::working(void *context)
 
     d->m_time.start();
 
-    //检查home路径
-    bool useAnything = true;
-    if (!d->m_anythingInterface->hasLFT(d->m_searchPath)) {
-        // 有可能 anything 不支持/home目录，但是支持/data/home
-        const QString &tmpPath = CommonTools::bindPathTransform(d->m_searchPath, true);
-        if (!d->m_anythingInterface->hasLFT(tmpPath)) {
-            qWarning() << "Do not support quick search for " << tmpPath;
-            useAnything = false;
-        } else {
-            d->m_originalSearchPath = d->m_searchPath;
-            d->m_searchPath = tmpPath;
-            d->m_hasTransformed = true;
-        }
-    }
+    // TODO
+    d->m_originalSearchPath = d->m_searchPath;
+    d->m_hasTransformed = true;
 
-    if (!d->m_supportParallelSearch) {
-        // 搜索user目录下文件
-        if (!d->searchUserPath())
-            return false; //中断
-    } else {
-        d->m_searchDirList << d->m_searchPath;
-    }
+    d->m_searchDirList << d->m_searchPath;
 
     // 使用anything搜索
-    if (useAnything) {
-        if (!d->searchByAnything())
-            return false; //中断
-    }
+    if (!d->searchByAnything())
+        return false;   // 中断
 
-    //检查是否还有数据
+    // 检查是否还有数据
     if (d->m_status.testAndSetRelease(Runing, Completed)) {
-        //发送数据
+        // 发送数据
         if (hasItem())
             emit unearthed(this);
     }
+
     return true;
 }
 
@@ -408,7 +353,7 @@ MatchedItemMap FileNameWorker::takeAll()
 {
     Q_D(FileNameWorker);
 
-    //添加分组
+    // 添加分组
     MatchedItemMap ret;
 
     QMutexLocker lk(&d->m_mutex);
@@ -423,5 +368,3 @@ MatchedItemMap FileNameWorker::takeAll()
 
     return ret;
 }
-
-

@@ -11,12 +11,11 @@
 
 using namespace GrandSearch;
 
-//10分钟后进入休眠模式
+// 10分钟后进入休眠模式
 #define DORMANT_INTERVAL 10 * 60 * 1000
 
 MainControllerPrivate::MainControllerPrivate(MainController *parent)
-    : QObject(parent)
-    , q(parent)
+    : QObject(parent), q(parent)
 {
     connect(&m_dormancy, &QTimer::timeout, this, &MainControllerPrivate::dormancy);
     m_dormancy.setSingleShot(true);
@@ -40,7 +39,7 @@ void MainControllerPrivate::buildWorker(TaskCommander *task, const QSet<QString>
 
     auto searchers = m_searchers->searchers();
 
-    //搜索项是否启用
+    // 搜索项是否启用
     auto config = ConfigerIns->group(GRANDSEARCH_PREF_SEARCHERENABLED);
     Q_ASSERT(config);
 
@@ -64,7 +63,7 @@ void MainControllerPrivate::buildWorker(TaskCommander *task, const QSet<QString>
 
         // 判断搜索项是否可用
         if (blankList.contains(name) || !config->value(name, true)
-                || (!searcherData.isEmpty() && !searcherData.contains(name)))
+            || (!searcherData.isEmpty() && !searcherData.contains(name)))
             continue;
 
         // 判断是否激活，若未激活则先激活
@@ -167,8 +166,7 @@ void MainControllerPrivate::dormancy()
 }
 
 MainController::MainController(QObject *parent)
-    : QObject(parent)
-    , d(new MainControllerPrivate(this))
+    : QObject(parent), d(new MainControllerPrivate(this))
 {
 }
 
@@ -180,15 +178,17 @@ bool MainController::init()
     if (!d->m_searchers->init())
         return false;
 
-    //初始化配置模块
+    // 初始化配置模块
     return ConfigerIns->init();
 }
 
 bool MainController::newSearch(const QString &key)
 {
     qInfo() << "new search, current task:" << d->m_currentTask << key.size();
-    if (Q_UNLIKELY(key.isEmpty()))
+    if (Q_UNLIKELY(key.isEmpty())) {
+        qDebug() << "===> empty key";
         return false;
+    }
 
     auto func = [this](TaskCommander *task) {
         d->buildWorker(task);
@@ -199,7 +199,7 @@ bool MainController::newSearch(const QString &key)
 
 void MainController::terminate()
 {
-    //停止任务
+    // 停止任务
     if (d->m_currentTask) {
         disconnect(d->m_currentTask, nullptr, this, nullptr);
         d->m_currentTask->stop();
@@ -213,7 +213,7 @@ QByteArray MainController::getResults() const
     if (d->m_currentTask) {
         MatchedItemMap items = d->m_currentTask->getResults();
 
-        //序列化
+        // 序列化
         QByteArray bytes;
         QDataStream stream(&bytes, QIODevice::WriteOnly);
         stream << items;
@@ -229,7 +229,7 @@ QByteArray MainController::readBuffer() const
     if (d->m_currentTask) {
         MatchedItemMap items = d->m_currentTask->readBuffer();
 
-        //序列化
+        // 序列化
         QByteArray bytes;
         QDataStream stream(&bytes, QIODevice::WriteOnly);
         stream << items;

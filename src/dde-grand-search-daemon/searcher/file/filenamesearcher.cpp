@@ -11,7 +11,8 @@
 
 using namespace GrandSearch;
 
-FileNameSearcher::FileNameSearcher(QObject *parent) : Searcher(parent)
+FileNameSearcher::FileNameSearcher(QObject *parent)
+    : Searcher(parent)
 {
 }
 
@@ -63,7 +64,8 @@ bool FileNameSearcher::activate()
 
 ProxyWorker *FileNameSearcher::createWorker() const
 {
-    auto worker = new FileNameWorker(name(), supportParallelSearch());
+    qDebug() << "===> create worker";
+    auto worker = new FileNameWorker(name());
     return worker;
 }
 

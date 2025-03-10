@@ -135,6 +135,11 @@ else ()
         searcher/file/filenameworker_p.h
         searcher/file/filesearchutils.h
         searcher/file/filesearchutils.cpp
+        searcher/file/perf/searchmanager.h
+        searcher/file/perf/searchmanager.cpp
+        searcher/file/perf/anythingsearcher.h
+        searcher/file/perf/anythingsearcher.cpp
+        searcher/file/perf/searcherinterface.h
         ${PROJECT_3RDPARTY_PATH}/interfaces/anything_interface.h
         ${PROJECT_3RDPARTY_PATH}/interfaces/anything_interface.cpp
         ${SEMANTIC_FILES}

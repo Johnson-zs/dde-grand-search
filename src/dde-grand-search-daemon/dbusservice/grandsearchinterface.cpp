@@ -6,6 +6,7 @@
 #include "grandsearchinterface_p.h"
 #include "maincontroller/maincontroller.h"
 #include "utils/searchpluginprotocol.h"
+#include "searcher/file/perf/searchmanager.h"
 
 #include <QDBusConnection>
 #include <QDBusConnectionInterface>
@@ -15,17 +16,18 @@
 #include <QCoreApplication>
 #include <QDebug>
 
-#define CHECKINVOKER(ret) if (!d->isAccessable(message()))\
-                            return ret
+#define CHECKINVOKER(ret)            \
+    if (!d->isAccessable(message())) \
+    return ret
 
 using namespace GrandSearch;
 
 GrandSearchInterfacePrivate::GrandSearchInterfacePrivate(GrandSearchInterface *parent)
-    : QObject(parent)
-    , q(parent)
+    : QObject(parent), q(parent)
 {
-    //允许调用dbus接口的可执行程序名单
+    // 允许调用dbus接口的可执行程序名单
     m_permit.insert("/usr/bin/dde-grand-search", true);
+    SearchManager::instance();
 }
 
 GrandSearchInterfacePrivate::~GrandSearchInterfacePrivate()
@@ -41,10 +43,10 @@ bool GrandSearchInterfacePrivate::isAccessable(const QDBusMessage &msg) const
     QDBusConnectionInterface *ifs = QDBusConnection::sessionBus().interface();
     Q_ASSERT(ifs);
 
-    //获取调用方的进程ID
+    // 获取调用方的进程ID
     uint invokerPid = ifs->servicePid(msg.service()).value();
 
-    //读取进程的可执行程序路径
+    // 读取进程的可执行程序路径
     QFileInfo fileInfo(QString("/proc/%1/exe").arg(invokerPid));
     if (!fileInfo.exists())
         return false;
@@ -54,7 +56,7 @@ bool GrandSearchInterfacePrivate::isAccessable(const QDBusMessage &msg) const
     if (!accessable)
         qWarning() << "invalid invoker:" << invokerPath << "pid" << invokerPid << accessable;
 
-//调试使用
+// 调试使用
 #ifdef QT_DEBUG
     return true;
 #endif
@@ -63,16 +65,17 @@ bool GrandSearchInterfacePrivate::isAccessable(const QDBusMessage &msg) const
 
 void GrandSearchInterfacePrivate::terminate()
 {
+    SearchManager::instance().clearCache();
     m_deadline.stop();
 
-    //停止搜索
+    // 停止搜索
     if (m_main)
         m_main->terminate();
 }
 
 void GrandSearchInterfacePrivate::onMatched()
 {
-    //控制在主线程
+    // 控制在主线程
     qInfo() << "notify matched" << m_session;
     Q_ASSERT(QThread::currentThread() == qApp->thread());
     if (!m_session.isEmpty()) {
@@ -82,7 +85,7 @@ void GrandSearchInterfacePrivate::onMatched()
 
 void GrandSearchInterfacePrivate::onSearchCompleted()
 {
-    //控制在主线程
+    // 控制在主线程
     qInfo() << "notify finished" << m_session;
     Q_ASSERT(QThread::currentThread() == qApp->thread());
     if (!m_session.isEmpty()) {
@@ -91,8 +94,7 @@ void GrandSearchInterfacePrivate::onSearchCompleted()
 }
 
 GrandSearchInterface::GrandSearchInterface(QObject *parent)
-    : QDBusService(parent)
-    , d(new GrandSearchInterfacePrivate(this))
+    : QDBusService(parent), d(new GrandSearchInterfacePrivate(this))
 {
     initPolicy(QDBusConnection::SessionBus, QString(SERVICE_CONFIG_DIR) + "other/grand-search-daemon.json");
 }
@@ -105,13 +107,13 @@ bool GrandSearchInterface::init()
 {
     Q_ASSERT(d->m_main == nullptr);
 
-    //超时后强制结束任务
+    // 超时后强制结束任务
     d->m_deadline.setInterval(40000);
     d->m_deadline.setSingleShot(true);
     connect(&d->m_deadline, &QTimer::timeout, d, &GrandSearchInterfacePrivate::terminate);
 
     d->m_main = new MainController;
-    //直连，防止被事件循环打乱时序
+    // 直连，防止被事件循环打乱时序
     connect(d->m_main, &MainController::matched, d, &GrandSearchInterfacePrivate::onMatched, Qt::DirectConnection);
     connect(d->m_main, &MainController::searchCompleted, d, &GrandSearchInterfacePrivate::onSearchCompleted, Qt::DirectConnection);
 
@@ -123,15 +125,15 @@ bool GrandSearchInterface::Search(const QString &session, const QString &key)
     qDebug() << __FUNCTION__ << "session " << session;
     CHECKINVOKER(false);
 
-    //会话ID检查，符合UUID宽度36。
+    // 会话ID检查，符合UUID宽度36。
     static int sessionLength = 36;
-    //关键词检查，最大长度不超过512
+    // 关键词检查，最大长度不超过512
     static int maxKeyLength = 512;
     if (session.size() != sessionLength || key.isEmpty() || key.size() > maxKeyLength) {
         return false;
     }
 
-    //发起新的搜索
+    // 发起新的搜索
     if (d->m_main->newSearch(key)) {
         d->m_session = session;
         d->m_deadline.start();
@@ -145,7 +147,7 @@ bool GrandSearchInterface::Search(const QString &session, const QString &key)
 
 void GrandSearchInterface::Terminate()
 {
-    qDebug() << __FUNCTION__;
+    qDebug() << "===>" << __FUNCTION__;
     CHECKINVOKER();
     d->terminate();
 }
@@ -182,35 +184,35 @@ bool GrandSearchInterface::OpenWithPlugin(const QString &searcher, const QString
     return d->m_main->searcherAction(searcher, PLUGININTERFACE_PROTOCOL_ACTION_OPEN, item);
 }
 
-//bool GrandSearchInterface::Configure(const QVariantMap &)
+// bool GrandSearchInterface::Configure(const QVariantMap &)
 //{
-//    CHECKINVOKER(false);
+//     CHECKINVOKER(false);
 
 //    return false;
 //}
 
-//QVariantMap GrandSearchInterface::Configuration() const
+// QVariantMap GrandSearchInterface::Configuration() const
 //{
-//    return QVariantMap();
-//}
+//     return QVariantMap();
+// }
 
-//bool GrandSearchInterface::SetFeedBackStrategy(const QVariantMap &)
+// bool GrandSearchInterface::SetFeedBackStrategy(const QVariantMap &)
 //{
-//    CHECKINVOKER(false);
+//     CHECKINVOKER(false);
 
 //    return false;
 //}
 
-//QVariantMap GrandSearchInterface::FeedBackStrategy() const
+// QVariantMap GrandSearchInterface::FeedBackStrategy() const
 //{
-//    return QVariantMap();
-//}
+//     return QVariantMap();
+// }
 
 bool GrandSearchInterface::KeepAlive(const QString &session)
 {
     CHECKINVOKER(false);
 
-    //重新计时
+    // 重新计时
     if (d->vaildSession(session)) {
         d->m_deadline.start();
         return true;
