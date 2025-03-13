@@ -8,125 +8,14 @@
 #include <QThread>
 
 SearchManager::SearchManager(QObject *parent)
-    : QObject(parent), m_searcher(nullptr), m_ownsSearcher(false)
+    : QObject(parent)
 {
-    auto anything = new AnythingSearcher(this);
-    setSearcher(anything);
-
-    // 初始化防抖定时器
-    m_debounceTimer.setSingleShot(true);
-    connect(&m_debounceTimer, &QTimer::timeout, this, [this]() {
-        qDebug() << "===> timer search:" << m_pendingSearchText;
-        executeSearch();
-    });
-
-    // 记录当前线程ID
-    m_timerThreadId = QThread::currentThreadId();
-
-    // 初始化时间戳
-    m_lastSearchTime = QDateTime::currentDateTime();
 }
 
 SearchManager &SearchManager::instance()
 {
     static SearchManager ins;
     return ins;
-}
-
-void SearchManager::setSearcher(SearcherInterface *searcher)
-{
-    QMutexLocker locker(&m_searcherMutex);
-    if (m_searcher && m_ownsSearcher) {
-        delete m_searcher;
-    }
-    m_searcher = searcher;
-    m_ownsSearcher = false;
-
-    if (m_searcher) {
-        connect(m_searcher, &SearcherInterface::searchFinished,
-                this, &SearchManager::onSearchFinished);
-        connect(m_searcher, &SearcherInterface::searchFailed,
-                this, &SearchManager::onSearchFailed);
-    }
-}
-
-void SearchManager::processUserInput(const QString &searchPath, const QString &searchText)
-{
-    QMutexLocker locker(&m_mutex);
-
-    // 确保定时器在当前线程
-    ensureTimerInCurrentThread();
-
-    m_pendingSearchPath = searchPath;
-    m_pendingSearchText = searchText;
-
-    // 如果输入为空，直接清空结果
-    if (searchText.isEmpty()) {
-        emit searchResultsReady(QStringList());
-        return;
-    }
-
-    // 尝试从缓存获取结果
-    QStringList cachedResults;
-    if (!m_lastSearchText.isEmpty()) {
-        //    QReadLocker readLock(&m_cacheLock);
-        if (tryGetFromCache(searchText, cachedResults)) {
-            emit searchResultsReady(cachedResults);
-            m_lastSearchText = searchText;
-            return;
-        }
-    }
-
-    // 应用防抖：重置定时器
-    m_debounceTimer.start(determineDebounceDelay(searchText));
-}
-
-void SearchManager::executeSearch()
-{
-    if (m_pendingSearchText.isEmpty()) {
-        emit searchResultsReady(QStringList());
-        return;
-    }
-
-    // 检查缓存
-    if (m_resultsCache.contains(m_pendingSearchText)) {
-        emit searchResultsReady(m_resultsCache[m_pendingSearchText]);
-        m_lastSearchText = m_pendingSearchText;
-        return;
-    }
-
-    qDebug() << "[excute] About to search: " << m_pendingSearchText;
-
-    // 检查搜索器是否存在
-    if (!m_searcher) {
-        emit searchError("搜索器未初始化");
-        return;
-    }
-
-    // 执行实际搜索
-    if (!m_searcher->requestSearch(m_pendingSearchPath, m_pendingSearchText)) {
-        emit searchError("搜索请求失败");
-    }
-
-    // 更新最后搜索时间
-    m_lastSearchTime = QDateTime::currentDateTime();
-    m_lastSearchText = m_pendingSearchText;
-}
-
-void SearchManager::onSearchFinished(const QString &query, const QStringList &results)
-{
-    // 仅处理最新的查询结果
-    if (query == m_pendingSearchText) {
-        addToCache(query, results);
-        emit searchResultsReady(results);
-    }
-}
-
-void SearchManager::onSearchFailed(const QString &query, const QString &errorMessage)
-{
-    if (query == m_pendingSearchText) {
-        emit searchError(errorMessage);
-    }
 }
 
 SearchManager::InputChangeType SearchManager::analyzeInputChange(const QString &oldText, const QString &newText)
@@ -170,33 +59,9 @@ QStringList SearchManager::filterLocalResults(const QStringList &sourceResults, 
     return filteredResults;
 }
 
-int SearchManager::determineDebounceDelay(const QString &text)
-{
-    // 基础等待时间
-    int delay = 200;   // 毫秒
-
-    // 针对短输入增加延迟
-    if (text.length() <= 2) {
-        delay += 150;
-    }
-
-    // 对于可能返回大量结果的特殊字符增加延迟
-    if (text.contains('*') || text.contains('?') || text.startsWith('.')) {
-        delay += 200;
-    }
-
-    return delay;
-}
-
-bool SearchManager::shouldDelaySearch(const QString &text)
-{
-    // 对于过短或者通配符搜索，应该延迟
-    return text.length() < 2 || text == "." || text == "*";
-}
-
 void SearchManager::clearCache()
 {
-    //   QWriteLocker writeLock(&m_cacheLock);
+    QMutexLocker guard(&m_mutex);
     m_resultsCache.clear();
     m_cacheUsageOrder.clear();
     m_lastSearchText.clear();
@@ -266,20 +131,6 @@ bool SearchManager::handleDeletionSearch(const QString &searchText, QStringList 
     return false;
 }
 
-void SearchManager::setCacheSize(int size)
-{
-    if (size > 0) {
-        m_maxCacheSize = size;
-
-        // 如果当前缓存超过新的大小限制，清理多余的缓存
-        while (m_resultsCache.size() > m_maxCacheSize) {
-            // 移除最久未使用的缓存项
-            QString oldestKey = m_cacheUsageOrder.takeLast();
-            m_resultsCache.remove(oldestKey);
-        }
-    }
-}
-
 void SearchManager::addToCache(const QString &key, const QStringList &results)
 {
     //   QWriteLocker writeLock(&m_cacheLock);
@@ -304,8 +155,6 @@ void SearchManager::updateCacheUsage(const QString &key)
 
 QStringList SearchManager::searchSync(const QString &searchPath, const QString &searchText)
 {
-    QMutexLocker locker(&m_mutex);
-
     // 如果输入为空，直接返回空结果
     if (searchText.isEmpty()) {
         return QStringList();
@@ -313,7 +162,7 @@ QStringList SearchManager::searchSync(const QString &searchPath, const QString &
 
     // 尝试从缓存获取结果
     {
-        //   QReadLocker readLock(&m_cacheLock);
+        QMutexLocker guard(&m_mutex);
         QStringList cachedResults;
         if (!m_lastSearchText.isEmpty() && tryGetFromCache(searchText, cachedResults)) {
             qDebug() << "===> searchSync: using cache for " << searchText;
@@ -321,37 +170,17 @@ QStringList SearchManager::searchSync(const QString &searchPath, const QString &
         }
     }
 
-    // 如果没有缓存，直接调用搜索器的同步搜索方法
-    QMutexLocker searcherLocker(&m_searcherMutex);
-    if (!m_searcher) {
-        qWarning() << "Searcher not initialized";
-        return QStringList();
-    }
-
+    AnythingSearcher searcher;
     // 执行同步搜索
-    QStringList results = m_searcher->searchSync(searchPath, searchText);
+    QStringList results = searcher.searchSync(searchPath, searchText);
 
     // 缓存结果
+
     if (!results.isEmpty()) {
+        QMutexLocker guard(&m_mutex);
         addToCache(searchText, results);
         m_lastSearchText = searchText;
     }
 
     return results;
-}
-
-void SearchManager::ensureTimerInCurrentThread()
-{
-    if (m_timerThreadId != QThread::currentThreadId()) {
-        // 如果线程ID不匹配，停止旧定时器并在当前线程创建新定时器
-        if (m_debounceTimer.isActive()) {
-            m_debounceTimer.stop();
-        }
-
-        // 更新线程ID
-        m_timerThreadId = QThread::currentThreadId();
-
-        // 重新初始化定时器
-        m_debounceTimer.moveToThread(QThread::currentThread());
-    }
 }

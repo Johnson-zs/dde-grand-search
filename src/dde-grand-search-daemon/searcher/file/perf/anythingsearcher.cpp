@@ -33,7 +33,6 @@ AnythingSearcher::AnythingSearcher(QObject *parent)
                                            "com.deepin.anything",
                                            QDBusConnection::systemBus(),
                                            this);
-    anythingInterface->setTimeout(1000);
 }
 
 bool AnythingSearcher::requestSearch(const QString &path, const QString &text)
@@ -90,7 +89,6 @@ QStringList AnythingSearcher::searchSync(const QString &path, const QString &tex
 {
     if (!anythingInterface->isValid() || path.isEmpty() || text.isEmpty())
         return QStringList();
-
     // 直接使用同步调用
     QDBusReply<QStringList> reply = anythingInterface->call("search", path, text);
 
