@@ -5,13 +5,10 @@
 #define ANYTHINGSEARCHER_H
 
 #include "searcherinterface.h"
-#include "../../semantic/database/anythingquery.h"
 
 #include <QDBusInterface>
 #include <QStringList>
 #include <QObject>
-
-using namespace GrandSearch;
 
 class AnythingSearcher : public SearcherInterface
 {
@@ -32,7 +29,6 @@ private:
     QDBusPendingCallWatcher *currentRequest { nullptr };
     QString m_currentQuery;
     QString m_searchPath;
-    AnythingQuery *m_anythingQuery;
     bool m_isSearching;
 
 private slots:

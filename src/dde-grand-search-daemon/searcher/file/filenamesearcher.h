@@ -19,9 +19,8 @@ public:
     bool activate() Q_DECL_OVERRIDE;
     ProxyWorker *createWorker() const Q_DECL_OVERRIDE;
     bool action(const QString &action, const QString &item) Q_DECL_OVERRIDE;
-    bool supportParallelSearch() const;
 };
 
 }
 
-#endif // FILENAMESEARCHER_H
+#endif   // FILENAMESEARCHER_H

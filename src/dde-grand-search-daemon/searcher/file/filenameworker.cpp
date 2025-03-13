@@ -31,6 +31,16 @@ FileNameWorkerPrivate::FileNameWorkerPrivate(FileNameWorker *qq)
     initConfig();
 }
 
+void FileNameWorkerPrivate::initAnything()
+{
+    Q_Q(FileNameWorker);
+
+    m_anythingInterface = new ComDeepinAnythingInterface("com.deepin.anything",
+                                                         "/com/deepin/anything",
+                                                         QDBusConnection::systemBus(),
+                                                         q);
+}
+
 void FileNameWorkerPrivate::initConfig()
 {
     // 获取支持的搜索类目
@@ -52,21 +62,6 @@ void FileNameWorkerPrivate::initConfig()
 
     if (config->value(GRANDSEARCH_GROUP_FILE_DOCUMNET, false))
         m_resultCountHash.insert(FileSearchUtils::Document, 0);
-}
-
-void FileNameWorkerPrivate::initAnything()
-{
-    Q_Q(FileNameWorker);
-
-    m_anythingInterface = new ComDeepinAnythingInterface("com.deepin.anything",
-                                                         "/com/deepin/anything",
-                                                         QDBusConnection::systemBus(),
-                                                         q);
-    m_anythingInterface->setTimeout(1000);
-
-    // 自动索引内置磁盘
-    if (!m_anythingInterface->autoIndexInternal())
-        m_anythingInterface->setAutoIndexInternal(true);
 }
 
 QFileInfoList FileNameWorkerPrivate::traverseDirAndFile(const QString &path)

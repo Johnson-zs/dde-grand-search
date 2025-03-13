@@ -12,9 +12,9 @@
 
 using namespace GrandSearch;
 
-AnythingQueryPrivate::AnythingQueryPrivate(AnythingQuery *qq) : q(qq)
+AnythingQueryPrivate::AnythingQueryPrivate(AnythingQuery *qq)
+    : q(qq)
 {
-
 }
 
 AnythingQueryPrivate::~AnythingQueryPrivate()
@@ -32,12 +32,11 @@ void AnythingQueryPrivate::initAnything()
     m_anythingInterface = new ComDeepinAnythingInterface("com.deepin.anything",
                                                          "/com/deepin/anything",
                                                          QDBusConnection::systemBus());
-    m_anythingInterface->setTimeout(1000);
-
+    m_anythingInterface->setTimeout(100);
     // 自动索引内置磁盘
     if (!m_anythingInterface->autoIndexInternal())
         m_anythingInterface->setAutoIndexInternal(true);
-    return ;
+    return;
 }
 
 bool AnythingQueryPrivate::searchUserPath(PushItemCallBack callBack, void *pdata)
@@ -70,8 +69,8 @@ bool AnythingQueryPrivate::searchUserPath(PushItemCallBack callBack, void *pdata
             // 检查文件名
             if (!entity.partPath.isEmpty()) {
                 bool isMatch = info.canonicalFilePath().contains(entity.partPath);
-                //qDebug() << QString("(%1) vs (%2) isMatch(%3) vs require(%4)").arg(info.canonicalFilePath())
-                //            .arg(m_entity.partPath).arg(isMatch).arg(m_entity.isTrue);
+                // qDebug() << QString("(%1) vs (%2) isMatch(%3) vs require(%4)").arg(info.canonicalFilePath())
+                //             .arg(m_entity.partPath).arg(isMatch).arg(m_entity.isTrue);
                 if ((!entity.isContainPath && isMatch) || (entity.isContainPath && !isMatch)) {
                     continue;
                 }
@@ -82,7 +81,7 @@ bool AnythingQueryPrivate::searchUserPath(PushItemCallBack callBack, void *pdata
 
             // 检查时间
             if (!SemanticHelper::isMatchTime(info.lastModified().toSecsSinceEpoch(), entity.times)
-                    && !SemanticHelper::isMatchTime(info.birthTime().toSecsSinceEpoch(), entity.times))
+                && !SemanticHelper::isMatchTime(info.birthTime().toSecsSinceEpoch(), entity.times))
                 continue;
 
             // 检查文件大小
@@ -145,7 +144,6 @@ bool AnythingQueryPrivate::searchByAnything(PushItemCallBack callBack, void *pda
         quint32 searchStartOffset = 0;
         quint32 searchEndOffset = 0;
 
-
         while (!dirs.isEmpty()) {
             if (m_handler && m_handler->isResultLimit())
                 break;
@@ -153,10 +151,10 @@ bool AnythingQueryPrivate::searchByAnything(PushItemCallBack callBack, void *pda
             QDBusPendingReply<QStringList, uint, uint> result;
             {
                 QStringList rules;
-                rules << "0x02100"  // 搜索最大数量，100
-                      << "0x40."    // 过滤系统隐藏文件
-                      << "0x011"    // 支持正则表达式
-                      << "0x031";    // 忽略大小写
+                rules << "0x02100"   // 搜索最大数量，100
+                      << "0x40."   // 过滤系统隐藏文件
+                      << "0x011"   // 支持正则表达式
+                      << "0x031";   // 忽略大小写
                 result = m_anythingInterface->parallelsearch(dirs.first(), searchStartOffset,
                                                              searchEndOffset, regStr, rules);
             }
@@ -201,8 +199,8 @@ bool AnythingQueryPrivate::searchByAnything(PushItemCallBack callBack, void *pda
 
                 if (!entity.partPath.isEmpty()) {
                     bool isMatch = path.contains(entity.partPath);
-                    //qDebug() << QString("(%1) vs (%2) isMatch(%3) vs require(%4)").arg(path)
-                    //            .arg(m_entity.partPath).arg(isMatch).arg(m_entity.isTrue);
+                    // qDebug() << QString("(%1) vs (%2) isMatch(%3) vs require(%4)").arg(path)
+                    //             .arg(m_entity.partPath).arg(isMatch).arg(m_entity.isTrue);
                     if ((!entity.isContainPath && isMatch) || (entity.isContainPath && !isMatch)) {
                         continue;
                     }
@@ -211,7 +209,7 @@ bool AnythingQueryPrivate::searchByAnything(PushItemCallBack callBack, void *pda
                 // 检查时间（创建时间和修改时间的并集）
                 QFileInfo info(path);
                 if (!SemanticHelper::isMatchTime(info.lastModified().toSecsSinceEpoch(), entity.times)
-                        && !SemanticHelper::isMatchTime(info.birthTime().toSecsSinceEpoch(), entity.times))
+                    && !SemanticHelper::isMatchTime(info.birthTime().toSecsSinceEpoch(), entity.times))
                     continue;
 
                 // 检查文件大小
@@ -266,7 +264,7 @@ QFileInfoList AnythingQueryPrivate::traverseDirAndFile(const QString &path)
     auto result = dir.entryInfoList();
     // 排序
     qSort(result.begin(), result.end(), [](const QFileInfo &info1, const QFileInfo &info2) {
-        static QStringList sortList{"Desktop", "Music", "Downloads", "Documents", "Pictures", "Videos"};
+        static QStringList sortList { "Desktop", "Music", "Downloads", "Documents", "Pictures", "Videos" };
         int index1 = sortList.indexOf(info1.fileName());
         int index2 = sortList.indexOf(info2.fileName());
 
@@ -315,13 +313,13 @@ double AnythingQueryPrivate::calcItemWeight(const QString &name)
     double w = 0;
 
     QSet<QString> mergedKeys;
-    for (const SemanticEntity &e: m_entity) {
+    for (const SemanticEntity &e : m_entity) {
         auto keys = e.keys;
         for (const QString &key : keys)
             mergedKeys.insert(key);
     }
 
-    for ( const QString &key : mergedKeys) {
+    for (const QString &key : mergedKeys) {
         if (name.contains(key, Qt::CaseInsensitive))
             w += 15;
     }
@@ -330,8 +328,7 @@ double AnythingQueryPrivate::calcItemWeight(const QString &name)
 }
 
 AnythingQuery::AnythingQuery(QObject *parent)
-    : QObject(parent)
-    , d(new AnythingQueryPrivate(this))
+    : QObject(parent), d(new AnythingQueryPrivate(this))
 {
     d->initAnything();
 }
@@ -351,7 +348,7 @@ void AnythingQuery::run(void *ptr, PushItemCallBack callBack, void *pdata)
 
     auto d = self->d;
     qDebug() << "query by deepin anything" << d->m_entity.size();
-    //检查home路径
+    // 检查home路径
     bool useAnything = true;
     if (!d->m_anythingInterface->hasLFT(d->m_searchPath)) {
         // 有可能 anything 不支持/home目录，但是支持/data/home
@@ -368,15 +365,16 @@ void AnythingQuery::run(void *ptr, PushItemCallBack callBack, void *pdata)
     d->m_time.start();
     // 搜索user目录下文件
     if (!d->searchUserPath(callBack, pdata))
-        return; //中断
+        return;   // 中断
 
     // 使用anything搜索
     if (useAnything) {
         if (!d->searchByAnything(callBack, pdata))
-            return; //中断
+            return;   // 中断
     }
 
-    qDebug() << "deepin anything is finished spend:" << d->m_time.elapsed() << "found:" << d->m_count;;
+    qDebug() << "deepin anything is finished spend:" << d->m_time.elapsed() << "found:" << d->m_count;
+    ;
 }
 
 void AnythingQuery::setEntity(const QList<SemanticEntity> &entity)
@@ -385,7 +383,7 @@ void AnythingQuery::setEntity(const QList<SemanticEntity> &entity)
 
     for (const SemanticEntity &e : entity) {
         if (!e.album.isEmpty() || !e.author.isEmpty() || !e.duration.isEmpty()
-                || !e.resolution.isEmpty())
+            || !e.resolution.isEmpty())
             continue;
         d->m_entity.append(e);
     }
