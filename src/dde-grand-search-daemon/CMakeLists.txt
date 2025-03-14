@@ -22,6 +22,7 @@ find_package(Qt5 COMPONENTS
     DBus
 REQUIRED)
 find_package(deepin-qdbus-service REQUIRED)
+pkg_check_modules(Lucene REQUIRED IMPORTED_TARGET liblucene++ liblucene++-contrib)
 
 add_definitions(-DSERVICE_CONFIG_DIR="${CMAKE_INSTALL_PREFIX}/share/deepin-service-manager/")
 
@@ -233,6 +234,7 @@ target_include_directories(${BIN_NAME} PUBLIC
 
 target_link_libraries(${BIN_NAME} PRIVATE
     ${LINK_LIBS}
+    PkgConfig::Lucene
 )
 
 install(TARGETS ${BIN_NAME} DESTINATION ${CMAKE_INSTALL_BINDIR})

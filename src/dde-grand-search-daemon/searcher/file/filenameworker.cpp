@@ -291,7 +291,7 @@ bool FileNameWorker::working(void *context)
     if (!d->m_status.testAndSetRelease(Ready, Runing))
         return false;
 
-    if (!d->m_anythingInterface->isValid() || d->m_searchInfo.keyword.isEmpty() || d->m_searchPath.isEmpty()) {
+    if (d->m_searchInfo.keyword.isEmpty() || d->m_searchPath.isEmpty()) {
         d->m_status.storeRelease(Completed);
         return false;
     }

@@ -6,6 +6,255 @@
 #include <QRegularExpression>
 #include <QDebug>
 #include <QThread>
+#include <QElapsedTimer>
+#include <QDir>
+
+#include <lucene++/LuceneHeaders.h>
+#include <unistd.h>
+#include <filesystem>
+
+using namespace Lucene;
+namespace {
+
+// 获取索引目录路径：/run/user/[当前用户id]/deepin-anything-server
+static QString getIndexDirectory()
+{
+    QString indexDir = QString("/run/user/%1/deepin-anything-server").arg(getuid());
+    return indexDir;
+}
+
+static QString getHomeDirectory()
+{
+    QString homeDir;
+
+    if (QFileInfo::exists("/data/home")) {
+        homeDir = "/data";
+    } else if (QFileInfo::exists("/persistent/home")) {
+        homeDir = "/persistent";
+    }
+
+    homeDir.append(QDir::homePath());
+
+    return homeDir;
+}
+
+static QStringList search2(const QString &orginPath, const QString &key, bool nrt)
+{
+    QString keywords = key;
+    QString path = orginPath;
+    if (path.startsWith(QDir::homePath()))
+        path.replace(0, QDir::homePath().length(), getHomeDirectory());
+
+    if (keywords.isEmpty()) {
+        return {};
+    }
+
+    // 原始词条
+    String query_terms = StringUtils::toUnicode(keywords.toStdString());
+
+    // 给普通 parser 用
+    if (keywords.at(0) == QChar('*') || keywords.at(0) == QChar('?')) {
+        keywords = keywords.mid(1);
+    }
+
+    try {
+        int32_t max_results;
+
+        // 获取索引目录
+        QString indexDir = getIndexDirectory();
+        qDebug() << "搜索索引目录:" << indexDir;
+
+        // 打开索引目录
+        FSDirectoryPtr directory = FSDirectory::open(StringUtils::toUnicode(indexDir.toStdString()));
+
+        // 检查索引是否存在
+        if (!IndexReader::indexExists(directory)) {
+            qWarning() << "索引不存在:" << indexDir;
+            return QStringList();
+        }
+
+        // 打开索引读取器
+        IndexReaderPtr reader = IndexReader::open(directory, true);
+        if (reader->numDocs() == 0) {
+            qWarning() << "索引为空，没有文档";
+            return QStringList();
+        }
+
+        // 创建搜索器
+        SearcherPtr searcher = newLucene<IndexSearcher>(reader);
+
+        if (reader->numDocs() == 0) {
+            qWarning() << "索引为空，没有文档";
+            return QStringList();
+        }
+
+        max_results = reader->numDocs();
+
+        String queryString = L"*" + StringUtils::toLower(StringUtils::toUnicode(keywords.toStdString())) + L"*";
+        TermPtr term = newLucene<Term>(L"file_name", queryString);
+        QueryPtr query = newLucene<WildcardQuery>(term);
+
+        auto search_results = searcher->search(query, max_results);
+
+        QStringList results;
+        results.reserve(search_results->scoreDocs.size());
+        for (const auto &score_doc : search_results->scoreDocs) {
+            DocumentPtr doc = searcher->doc(score_doc->doc);
+            auto result = QString::fromStdWString(doc->get(L"full_path"));
+            if (result.startsWith(path)) {
+                results.append(std::move(result));
+            }
+        }
+
+        return results;
+    } catch (const LuceneException &e) {
+
+        return {};
+    }
+}
+
+static QStringList search(const QString &originPath, const QString &key)
+{
+    if (key.isEmpty()) {
+        return QStringList();
+    }
+
+    QElapsedTimer timer;
+    timer.start();
+
+    try {
+        // 获取索引目录
+        QString indexDir = getIndexDirectory();
+        qDebug() << "搜索索引目录:" << indexDir;
+
+        // 打开索引目录
+        FSDirectoryPtr directory = FSDirectory::open(StringUtils::toUnicode(indexDir.toStdString()));
+
+        // 检查索引是否存在
+        if (!IndexReader::indexExists(directory)) {
+            qWarning() << "索引不存在:" << indexDir;
+            return QStringList();
+        }
+
+        // 打开索引读取器
+        IndexReaderPtr reader = IndexReader::open(directory, true);
+        if (reader->numDocs() == 0) {
+            qWarning() << "索引为空，没有文档";
+            return QStringList();
+        }
+
+        // 创建搜索器
+        SearcherPtr searcher = newLucene<IndexSearcher>(reader);
+
+        // 创建多种查询以提高匹配率
+        BooleanQueryPtr booleanQuery = newLucene<BooleanQuery>();
+
+        // 1. 原始关键词处理
+        String lowerKey = StringUtils::toLower(StringUtils::toUnicode(key.toStdString()));
+
+        // 2. 使用通配符匹配
+        TermPtr wildcardTerm = newLucene<Term>(L"file_name", L"*" + lowerKey + L"*");
+        QueryPtr wildcardQuery = newLucene<WildcardQuery>(wildcardTerm);
+        booleanQuery->add(wildcardQuery, BooleanClause::SHOULD);
+
+        // 3. 使用前缀匹配
+        TermPtr prefixTerm = newLucene<Term>(L"file_name", lowerKey);
+        QueryPtr prefixQuery = newLucene<PrefixQuery>(prefixTerm);
+        booleanQuery->add(prefixQuery, BooleanClause::SHOULD);
+
+        // 4. 使用精确匹配
+        TermPtr exactTerm = newLucene<Term>(L"file_name", lowerKey);
+        QueryPtr termQuery = newLucene<TermQuery>(exactTerm);
+        booleanQuery->add(termQuery, BooleanClause::SHOULD);
+
+        // 5. 设置至少一个SHOULD子句必须匹配
+        booleanQuery->setMinimumNumberShouldMatch(1);
+
+        // 添加路径限制（如果提供）
+        if (!originPath.isEmpty()) {
+            BooleanQueryPtr combinedQuery = newLucene<BooleanQuery>();
+            combinedQuery->add(booleanQuery, BooleanClause::MUST);
+
+            // 路径前缀查询
+            String pathPrefix = StringUtils::toUnicode(originPath.toStdString());
+            QueryPtr pathQuery = newLucene<PrefixQuery>(newLucene<Term>(L"full_path", pathPrefix));
+            combinedQuery->add(pathQuery, BooleanClause::MUST);
+
+            booleanQuery = combinedQuery;
+        }
+
+        // 调试信息
+        qDebug() << "搜索查询:" << QString::fromStdWString(booleanQuery->toString());
+        qDebug() << "索引文档数:" << reader->numDocs();
+
+        // 执行搜索
+        int32_t maxResults = reader->numDocs();
+        TopDocsPtr topDocs = searcher->search(booleanQuery, maxResults);
+
+        qDebug() << "匹配文档数:" << topDocs->scoreDocs.size();
+
+        // 处理结果
+        QStringList results;
+        results.reserve(topDocs->scoreDocs.size());
+
+        for (int32_t i = 0; i < topDocs->scoreDocs.size(); ++i) {
+            ScoreDocPtr scoreDoc = topDocs->scoreDocs[i];
+            DocumentPtr doc = searcher->doc(scoreDoc->doc);
+
+            // 获取全路径
+            String fullPath = doc->get(L"full_path");
+            if (!fullPath.empty()) {
+                QString path = QString::fromStdWString(fullPath);
+
+                // 检查文件是否存在
+                if (QFileInfo::exists(path)) {
+                    results.append(path);
+                }
+            }
+        }
+
+        // 如果没有结果，尝试检查索引中的字段
+        if (results.isEmpty() && reader->numDocs() > 0) {
+            qDebug() << "无搜索结果，尝试分析索引...";
+
+            // 获取第一个文档的字段
+            DocumentPtr sampleDoc = searcher->doc(0);
+            auto fieldNames = sampleDoc->getFields();
+            QString fields;
+            for (auto &field : fieldNames) {
+                fields += QString::fromStdWString(field->name()) + " ";
+            }
+            qDebug() << "索引文档字段:" << fields;
+
+            // 尝试查询所有文档，看是否有问题
+            qDebug() << "尝试使用MatchAllDocsQuery...";
+            QueryPtr matchAllQuery = newLucene<MatchAllDocsQuery>();
+            TopDocsPtr allDocs = searcher->search(matchAllQuery, reader->numDocs());
+            qDebug() << "MatchAllDocsQuery结果数:" << allDocs->scoreDocs.size();
+
+            // 如果有文档，检查第一个
+            if (!allDocs->scoreDocs.empty()) {
+                DocumentPtr firstDoc = searcher->doc(allDocs->scoreDocs[0]->doc);
+                qDebug() << "第一个文档路径:" << QString::fromStdWString(firstDoc->get(L"full_path"));
+                qDebug() << "文件名:" << QString::fromStdWString(firstDoc->get(L"file_name"));
+            }
+        }
+
+        qDebug() << "搜索完成，耗时:" << timer.elapsed() << "ms，找到结果:" << results.size() << "个";
+        return results;
+    } catch (const LuceneException &e) {
+        qWarning() << "Lucene搜索异常:" << QString::fromStdWString(e.getError());
+        return QStringList();
+    } catch (const std::exception &e) {
+        qWarning() << "搜索过程中发生异常:" << e.what();
+        return QStringList();
+    } catch (...) {
+        qWarning() << "搜索过程中发生未知异常";
+        return QStringList();
+    }
+}
+
+};
 
 SearchManager::SearchManager(QObject *parent)
     : QObject(parent)
@@ -170,9 +419,11 @@ QStringList SearchManager::searchSync(const QString &searchPath, const QString &
         }
     }
 
-    AnythingSearcher searcher;
-    // 执行同步搜索
-    QStringList results = searcher.searchSync(searchPath, searchText);
+    QStringList results = ::search2(searchPath, searchText, true);
+
+    // AnythingSearcher searcher;
+    // // 执行同步搜索
+    // QStringList results = searcher.searchSync(searchPath, searchText);
 
     // 缓存结果
 

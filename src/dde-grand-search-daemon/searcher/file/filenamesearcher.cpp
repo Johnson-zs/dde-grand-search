@@ -30,7 +30,6 @@ bool FileNameSearcher::isActive() const
     interface.setTimeout(500);
     if (!interface.isValid()) {
         qWarning() << QDBusConnection::systemBus().lastError().message();
-        return false;
     }
 
     return true;
