@@ -35,7 +35,7 @@ public:
     QAtomicInteger<bool> m_missionIdChanged = true;
     MatchedItemMap m_cacheItems;
     bool m_enableBestMatch = true;
-    int m_firstItemLimit = 30;
+    int m_firstItemLimit = 1;
     int m_firstWaitTime = 500;
     int m_bestItemMaxCount = 4;
     QSharedPointer<QTimer> m_waitTimer = nullptr;
@@ -45,4 +45,4 @@ public:
 
 }
 
-#endif // MATCHCONTROLLER_P_H
+#endif   // MATCHCONTROLLER_P_H

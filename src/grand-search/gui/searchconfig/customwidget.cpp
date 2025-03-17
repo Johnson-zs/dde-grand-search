@@ -46,7 +46,7 @@ CustomWidget::CustomWidget(QWidget *parent)
     m_searchEngineWidget = new SearchEngineWidget(this);
     m_searchPlanWidget = new PlanWidget(this);
     m_innerLayout->addWidget(m_tailerWidget);
-    m_innerLayout->addWidget(m_bestMatchWidget);
+    // m_innerLayout->addWidget(m_bestMatchWidget);
     m_innerLayout->addWidget(m_searchEngineWidget);
     m_innerLayout->addWidget(m_searchPlanWidget);
 }

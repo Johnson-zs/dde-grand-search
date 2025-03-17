@@ -19,7 +19,8 @@ MatchControllerPrivate::MatchControllerPrivate(MatchController *parent)
 {
     m_daemonDbus = new DaemonGrandSearchInterface(this);
 
-    m_enableBestMatch = SearchConfig::instance()->getConfig(GRANDSEARCH_CUSTOM_GROUP, GRANDSEARCH_CUSTOM_BESTMATCH, m_enableBestMatch).toBool();
+    m_enableBestMatch = false;
+    // m_enableBestMatch = SearchConfig::instance()->getConfig(GRANDSEARCH_CUSTOM_GROUP, GRANDSEARCH_CUSTOM_BESTMATCH, m_enableBestMatch).toBool();
     m_firstItemLimit = SearchConfig::instance()->getConfig(GRANDSEARCH_CUSTOM_GROUP, GRANDSEARCH_CUSTOM_BESTMATCH_FIRSTITEMLIMIT, m_firstItemLimit).toInt();
     m_firstWaitTime = SearchConfig::instance()->getConfig(GRANDSEARCH_CUSTOM_GROUP, GRANDSEARCH_CUSTOM_BESTMATCH_FIRSTWAITTIME, m_firstWaitTime).toInt();
     m_bestItemMaxCount = SearchConfig::instance()->getConfig(GRANDSEARCH_CUSTOM_GROUP, GRANDSEARCH_CUSTOM_BESTMATCH_MAXCOUNT, m_bestItemMaxCount).toInt();
@@ -99,7 +100,7 @@ void MatchControllerPrivate::onSearchCompleted(const QString &missionId)
 
     sendCacheItems();
 
-    //通知界面刷新，若界面有数据不做处理，否则就刷新
+    // 通知界面刷新，若界面有数据不做处理，否则就刷新
     emit q_p->searchCompleted();
 
     qDebug() << QString("search Completed.");
@@ -119,15 +120,12 @@ void MatchControllerPrivate::sendCacheItems()
 }
 
 MatchController::MatchController(QObject *parent)
-    : QObject(parent)
-    , d_p(new MatchControllerPrivate(this))
+    : QObject(parent), d_p(new MatchControllerPrivate(this))
 {
-
 }
 
 MatchController::~MatchController()
 {
-
 }
 
 void MatchController::onMissionChanged(const QString &missionId, const QString &missionContent)
@@ -145,4 +143,3 @@ void MatchController::onMissionChanged(const QString &missionId, const QString &
     d_p->m_waitTimer.reset(new QTimer);
     d_p->m_waitTimer->setSingleShot(true);
 }
-
